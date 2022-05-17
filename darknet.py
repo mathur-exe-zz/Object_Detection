@@ -56,10 +56,16 @@ class EmptyLayer(nn.Module):
     def __init__(self):
         super(EmptyLayer, self).__init__()
 
+# used to detect bounding boxes
+class DetectionLayer(nn.Module):
+    def __init__(self, anchors):
+        super(DetectionLayer, self).__init__()
+        self.anchors = anchors
+
 def create_modules(blocks):
   net_info = blocks[0]                # capturing info about i/p & preprocessing
   module_list = nn.ModuleList()
-  prev_filter = 3                   
+  prev_filters = 3                   
   # used to track the no. of filter in the layer which the convolution layer is appled
   # has been initalized to 3 filters corresponding to RGB channels
   output_filters = []     # stores the number of o/p filters 
@@ -67,12 +73,14 @@ def create_modules(blocks):
   # iterate over the list of blocks, and create a PyTorch module for each block
   for index, x in enumerate(blocks[1:]):
     module = nn.Sequential()
-    
-    """
-    Convolution Layer
-    - 
-    """ 
+  
     if (x["type"] == "convolutional"):
+
+      """
+      Convolution Layer
+      - 
+      """ 
+
       #Get the info about the layer
       activation = x["activation"]
       try:
@@ -105,15 +113,16 @@ def create_modules(blocks):
       #It is either Linear or a Leaky ReLU for YOLO
       if activation == "leaky":
         activn = nn.LeakyReLU(0.1, inplace = True)
-        module.add_module("leaky_{0}".format(index), activn)
+        module.add_module("leaky_{0}".format(index), activn)  
     
-
-    """
-    Route Layer / Shortcut Layer
-    - Extract the values of the layer attribute 
-    - Cat ti into an int and store in list
-    """
     elif (x["type"] == "route"):
+
+      """
+      Route Layer / Shortcut Layer
+      - Extract the values of the layer attribute 
+      - Cat ti into an int and store in list
+      """
+
       x["layers"] = x["layers"].split(',')
       #Start  of a route
       start = int(x["layers"][0])
@@ -135,7 +144,30 @@ def create_modules(blocks):
         filters= output_filters[index + start]
 
       #shortcut corresponds to skip connection
-      elif x["type"] == "shortcut":
-        shortcut = EmptyLayer()
-        module.add_module("shortcut_{}".format(index), shortcut)
+    
+    elif x["type"] == "shortcut":
+      shortcut = EmptyLayer()
+      module.add_module("shortcut_{}".format(index), shortcut)
+  
+    elif x["type"] == "yolo":
+      mask = x["mask"].split(",")
+      mask = [int(x) for x in mask]
+      
+      anchors = x["anchors"].split(",")
+      anchors = [int(a) for a in anchors]
+      anchors = [(anchors[i], anchors[i+1]) for i in range(0, len(anchors),2)]
+      anchors = [anchors[i] for i in mask]
+
+      detection = DetectionLayer(anchors)
+      module.add_module("Detection_{}".format(index), detection)
+
+    # Storing values in list
+    module_list.append(module)
+    prev_filters = filters
+    output_filters.append(filters)
+
+  return (net_info, module_list)
+
+blocks = parse_cfg('/content/yolov3.cfg')
+print(create_modules(blocks))
 
